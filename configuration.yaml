@@ -1,0 +1,247 @@
+homeassistant:
+  # Name of the location where Home Assistant is running
+  name: Home
+  # Location required to calculate the time the sun rises and sets
+  latitude: !secret lat
+  longitude: !secret long
+  # Impacts weather/sunrise data (altitude above sea level in meters)
+  elevation: !secret elevation
+  # metric for Metric, imperial for Imperial
+  unit_system: metric
+  # Pick yours from here: http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+  time_zone: Europe/Brussels
+
+# Show links to resources in log and frontend
+#introduction:
+
+# Enables the frontend
+frontend:
+
+# Enables configuration UI
+config:
+
+http:
+  # Uncomment this to add a password (recommended!)
+  # api_password: PASSWORD
+  # Uncomment this if you are using SSL or running in Docker etc
+  # base_url: example.duckdns.org:8123
+
+# Checks for available updates
+updater:
+
+# Discover some devices automatically
+discovery:
+
+# Allows you to issue voice commands from the frontend in enabled browsers
+conversation:
+
+# Enables support for tracking state changes over time.
+history:
+
+# View all events in a logbook
+logbook:
+
+# Track the sun
+sun:
+
+# Weather Prediction
+sensor:
+  - platform: yr
+  - platform: darksky
+    api_key: !secret darksky_apikey
+    monitored_conditions:
+      - summary
+      - icon
+      - temperature
+    update_interval:
+      minutes: 10
+  - platform: systemmonitor
+    resources:
+      - type: disk_use_percent
+        arg: /storage
+      - type: disk_use_percent
+        arg: /cold-storage
+      - type: memory_free
+  - platform: cpuspeed
+
+# Text to speech
+tts:
+  platform: google
+
+light:
+  - platform: lifx
+    broadcast: 192.168.1.255
+
+remote:
+  - platform: harmony
+    name: Living
+    host: 192.168.1.11
+
+group:
+  rolluiken:
+    name: Rolluiken
+    control: hidden
+    entities:
+      - group.rolluiken_openen
+      - group.rolluiken_sluiten
+  rolluiken_openen:
+    name: 'Rolluiken openen'
+    entities:
+      - switch.rolluik_bureau_openen
+      - switch.rolluik_living_openen
+  rolluiken_sluiten:
+    name: 'Rolluiken sluiten'
+    entities:
+      - switch.rolluik_bureau_sluiten
+      - switch.rolluik_living_sluiten
+  system:
+    name: Systeem
+    entities:
+      - sensor.cpu_speed
+  weather:
+    name: Weer
+    entities:
+      - sensor.dark_sky_icon
+      - sensor.dark_sky_summary
+      - sensor.dark_sky_temperature
+      - sensor.yr_symbol
+      - sun.sun
+
+device_tracker:
+  - platform: nmap_tracker
+    hosts: 192.168.1.1/24
+    home_interval: 10
+
+input_boolean:
+  away_mode:
+    name: Away Mode (presence simulation)
+    initial: off
+    icon: mdi:terrain
+
+switch:
+  - platform: tplink
+    host: 192.168.1.80
+    name: Speaker Boven
+  - platform: tplink
+    host: 192.168.1.81
+    name: Staande Lamp
+  - platform: mqtt
+    name: "Rolluik Bureau Sluiten"
+    state_topic: "/test/switch/DUAL_ROLLUIK_BUREAU/relay/0"
+    command_topic: "/test/switch/DUAL_ROLLUIK_BUREAU/relay/0"
+    payload_on: 1
+    payload_off: 0
+    optimistic: false
+    qos: 1
+    retrain: true
+  - platform: mqtt
+    name: "Rolluik Bureau Openen"
+    state_topic: "/test/switch/DUAL_ROLLUIK_BUREAU/relay/1"
+    command_topic: "/test/switch/DUAL_ROLLUIK_BUREAU/relay/1"
+    payload_on: 1
+    payload_off: 0
+    optimistic: false
+    qos: 1
+    retrain: true
+  - platform: mqtt
+    name: "Rolluik Living Sluiten"
+    state_topic: "/test/switch/DUAL_ROLLUIK_LIVING/relay/0"
+    command_topic: "/test/switch/DUAL_ROLLUIK_LIVING/relay/0"
+    payload_on: 1
+    payload_off: 0
+    optimistic: false
+    qos: 1
+    retrain: true
+  - platform: mqtt
+    name: "Rolluik Living Openen"
+    state_topic: "/test/switch/DUAL_ROLLUIK_LIVING/relay/1"
+    command_topic: "/test/switch/DUAL_ROLLUIK_LIVING/relay/1"
+    payload_on: 1
+    payload_off: 0
+    optimistic: false
+    qos: 1
+    retrain: true
+
+automation:
+  - alias: 'Upstairs speakers active'
+    trigger: 
+      platform: state
+      entity_id: media_player.bureau
+      to: 'playing'
+    action:
+      - service: switch.turn_on
+        entity_id: switch.speaker_boven
+  - alias: 'Upstairs speakers inactive'
+    trigger:
+      platform: state
+      entity_id: media_player.bureau
+      to: 'off'
+    action:
+      - service: switch.turn_off
+        entity_id: switch.speaker_boven
+  - alias: 'Downstairs speakers active'
+    trigger:
+      platform: state
+      entity_id: media_player.volumio
+      to: 'playing'
+    condition:
+      condition: template
+      value_template: '{{ states.remote.living.attributes.current_activity == "PowerOff" }}'
+    action:
+      - service: remote.turn_on
+        entity_id: remote.living
+        data: 
+          activity: "25430094"
+  - alias: 'Downstairs speakers inactive'
+    trigger:
+      platform: state
+      entity_id: media_player.volumio
+      to: 'paused'
+      for:
+        minutes: 1
+    condition:
+      condition: template
+      value_template: '{{ states.remote.living.attributes.current_activity == "Muziek luisteren" }}'
+    action:
+      - service: remote.turn_off
+        entity_id: remote.living
+  - alias: 'Open blinds after sunrise'
+    trigger: 
+      platform: sun
+      event: sunrise
+      offset: '+01:00:00'
+    condition:
+      condition: state
+      entity_id: input_boolean.away_mode
+      state: 'on'
+    action:
+      - service: switch.turn_on
+        entity_id: switch.rolluik_living_openen
+      - service: switch.turn_on
+        entity_id: switch.rolluik_bureau_openen
+  - alias: 'Close blinds after sunset'
+    trigger: 
+      platform: sun
+      event: sunset
+      offset: '+01:00:00'
+    action:
+      - service: switch.turn_on
+        entity_id: switch.rolluik_living_sluiten
+      - service: switch.turn_on
+        entity_id: switch.rolluik_bureau_sluiten
+
+cover:
+  platform: garadget
+  covers:
+    32001e000451353530353431:
+      username: !secret garadget_username
+      password: !secret garadget_password
+      name: Garage
+mqtt:
+  broker: 192.168.1.100
+
+media_player:
+  - platform: volumio
+    host: 192.168.1.12
+    port: 3000
+
